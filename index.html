@@ -1,32 +1,430 @@
 <!DOCTYPE html>
-<html>
+<html lang="fr">
 <head>
-  <meta charset="utf-8">
-  <title>Patron couture 3D → 2D</title>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Générateur de Patron Couture 3D</title>
+    <style>
+        /* Style de base pour la page */
+        body {
+            margin: 0;
+            font-family: Arial, sans-serif;
+            background: #f0f0f0;
+            overflow: hidden;
+        }
+        
+        /* Conteneur principal qui prend toute la fenêtre */
+        #container {
+            display: flex;
+            width: 100vw;
+            height: 100vh;
+        }
+        
+        /* Zone de gauche : la vue 3D */
+        #view3d {
+            flex: 1;
+            position: relative;
+            background: #1a1a1a;
+        }
+        
+        /* Zone de droite : le patron 2D */
+        #view2d {
+            flex: 1;
+            position: relative;
+            background: white;
+            overflow: auto;
+        }
+        
+        /* Panneau de contrôle en haut à gauche */
+        #controls {
+            position: absolute;
+            top: 20px;
+            left: 20px;
+            background: rgba(255, 255, 255, 0.95);
+            padding: 20px;
+            border-radius: 10px;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+            z-index: 100;
+            max-width: 300px;
+        }
+        
+        /* Style des boutons */
+        button {
+            background: #4CAF50;
+            color: white;
+            border: none;
+            padding: 12px 24px;
+            border-radius: 5px;
+            cursor: pointer;
+            font-size: 14px;
+            margin: 5px 0;
+            width: 100%;
+        }
+        
+        button:hover {
+            background: #45a049;
+        }
+        
+        /* Input pour le fichier */
+        input[type="file"] {
+            margin: 10px 0;
+            padding: 8px;
+            width: 100%;
+            box-sizing: border-box;
+        }
+        
+        /* Slider pour régler le nombre de pièces */
+        input[type="range"] {
+            width: 100%;
+            margin: 10px 0;
+        }
+        
+        /* Texte d'information */
+        .info {
+            margin: 10px 0;
+            font-size: 14px;
+            color: #333;
+        }
+        
+        /* Zone Canvas pour le patron 2D */
+        #patternCanvas {
+            display: block;
+            margin: 20px;
+            border: 1px solid #ccc;
+            background: white;
+        }
+    </style>
 </head>
 <body>
+    <!-- Structure HTML : deux colonnes -->
+    <div id="container">
+        <!-- Colonne gauche : vue 3D -->
+        <div id="view3d">
+            <!-- Le panneau de contrôle -->
+            <div id="controls">
+                <h2 style="margin-top:0;">🧵 Patron Couture 3D</h2>
+                
+                <!-- Bouton pour charger un fichier 3D -->
+                <label for="fileInput">1. Importer un objet 3D :</label>
+                <input type="file" id="fileInput" accept=".obj,.glb,.gltf">
+                
+                <!-- Slider pour régler le nombre de pièces -->
+                <label for="pieceSlider">2. Nombre de pièces :</label>
+                <input type="range" id="pieceSlider" min="1" max="50" value="10" disabled>
+                <div class="info" id="pieceCount">Pièces : 10</div>
+                
+                <!-- Bouton pour générer le patron -->
+                <button id="generateBtn" disabled>3. Générer le patron</button>
+                
+                <div class="info" style="margin-top: 20px; font-size: 12px; color: #666;">
+                    💡 Astuce : Utilisez des modèles simples pour commencer (cube, sphère)
+                </div>
+            </div>
+        </div>
+        
+        <!-- Colonne droite : patron 2D -->
+        <div id="view2d">
+            <canvas id="patternCanvas"></canvas>
+        </div>
+    </div>
 
-  <h1>Conversion 3D vers patron 2D</h1>
-
-  <div id="scene3D"></div>
-
-  <label>Nombre de pièces :</label>
-  <input type="range" min="1" max="10" value="4" id="pieces">
-  <span id="value">4</span>
-
-  <br><br>
-  <button>Convertir en patron</button>
-
-  <canvas id="patron2D" width="500" height="500"></canvas>
-<script>
-const slider = document.getElementById("pieces");
-const value = document.getElementById("value");
-
-slider.oninput = () => {
-  value.textContent = slider.value;
-};
-</script>
-
+    <!-- Three.js : la bibliothèque 3D -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    
+    <!-- Notre code JavaScript -->
+    <script>
+        // ========================================
+        // PARTIE 1 : INITIALISATION DE LA SCÈNE 3D
+        // ========================================
+        
+        // On crée une "scène" : c'est comme une boîte vide où on va mettre nos objets 3D
+        const scene = new THREE.Scene();
+        scene.background = new THREE.Color(0x1a1a1a); // Couleur de fond gris foncé
+        
+        // On crée une "caméra" : c'est notre œil qui regarde la scène
+        const camera = new THREE.PerspectiveCamera(
+            75, // Angle de vue (comme un objectif grand angle)
+            1, // Ratio largeur/hauteur (on le calculera après)
+            0.1, // Distance minimale de vue
+            1000 // Distance maximale de vue
+        );
+        camera.position.z = 5; // On recule la caméra pour voir l'objet
+        
+        // On crée le "renderer" : c'est ce qui dessine la 3D dans le navigateur
+        const renderer = new THREE.WebGLRenderer({ antialias: true }); // antialias = lissage des bords
+        document.getElementById('view3d').appendChild(renderer.domElement); // On ajoute le rendu à notre page
+        
+        // Lumières : sans lumière, on ne voit rien !
+        const ambientLight = new THREE.AmbientLight(0xffffff, 0.6); // Lumière ambiante douce
+        scene.add(ambientLight);
+        
+        const directionalLight = new THREE.DirectionalLight(0xffffff, 0.8); // Lumière directionnelle
+        directionalLight.position.set(5, 5, 5); // Position de la lumière
+        scene.add(directionalLight);
+        
+        // Variable pour stocker notre objet 3D
+        let currentMesh = null;
+        
+        // ========================================
+        // PARTIE 2 : GESTION DU CHARGEMENT DE FICHIER
+        // ========================================
+        
+        // On récupère les éléments HTML dont on a besoin
+        const fileInput = document.getElementById('fileInput');
+        const pieceSlider = document.getElementById('pieceSlider');
+        const pieceCount = document.getElementById('pieceCount');
+        const generateBtn = document.getElementById('generateBtn');
+        
+        // Quand on importe un fichier
+        fileInput.addEventListener('change', function(event) {
+            const file = event.target.files[0]; // On récupère le fichier
+            if (!file) return; // Si pas de fichier, on arrête
+            
+            // On lit le fichier
+            const reader = new FileReader();
+            reader.onload = function(e) {
+                const contents = e.target.result; // Le contenu du fichier
+                
+                // On détecte le type de fichier selon son extension
+                if (file.name.endsWith('.obj')) {
+                    loadOBJ(contents); // On charge un fichier OBJ
+                } else if (file.name.endsWith('.glb') || file.name.endsWith('.gltf')) {
+                    alert('Format GLB/GLTF pas encore supporté dans cette version simplifiée. Utilisez un fichier OBJ.');
+                }
+            };
+            reader.readAsText(file); // On lit le fichier comme du texte
+        });
+        
+        // ========================================
+        // PARTIE 3 : CHARGEMENT D'UN FICHIER OBJ
+        // ========================================
+        
+        function loadOBJ(objText) {
+            // Un fichier OBJ est un fichier texte avec des lignes comme :
+            // v 1.0 2.0 3.0 (vertex = sommet)
+            // f 1 2 3 (face = triangle)
+            
+            const lines = objText.split('\n'); // On découpe en lignes
+            const vertices = []; // Liste des sommets
+            const faces = []; // Liste des faces
+            
+            // On parcourt chaque ligne
+            lines.forEach(line => {
+                const parts = line.trim().split(/\s+/); // On découpe la ligne en mots
+                
+                if (parts[0] === 'v') {
+                    // C'est un sommet (vertex)
+                    vertices.push({
+                        x: parseFloat(parts[1]),
+                        y: parseFloat(parts[2]),
+                        z: parseFloat(parts[3])
+                    });
+                } else if (parts[0] === 'f') {
+                    // C'est une face (triangle)
+                    // Format : f 1 2 3 ou f 1/1/1 2/2/2 3/3/3
+                    const indices = [];
+                    for (let i = 1; i < parts.length; i++) {
+                        const index = parseInt(parts[i].split('/')[0]) - 1; // OBJ commence à 1, pas 0
+                        indices.push(index);
+                    }
+                    if (indices.length >= 3) {
+                        faces.push([indices[0], indices[1], indices[2]]);
+                    }
+                }
+            });
+            
+            // On crée la géométrie Three.js
+            createMesh(vertices, faces);
+        }
+        
+        // ========================================
+        // PARTIE 4 : CRÉATION DU MESH 3D
+        // ========================================
+        
+        function createMesh(vertices, faces) {
+            // On supprime l'ancien objet s'il existe
+            if (currentMesh) {
+                scene.remove(currentMesh);
+            }
+            
+            // On crée une nouvelle géométrie
+            const geometry = new THREE.BufferGeometry();
+            
+            // On convertit nos sommets en format Three.js
+            const positions = [];
+            faces.forEach(face => {
+                face.forEach(vertexIndex => {
+                    const v = vertices[vertexIndex];
+                    positions.push(v.x, v.y, v.z);
+                });
+            });
+            
+            // On ajoute les positions à la géométrie
+            geometry.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
+            geometry.computeVertexNormals(); // Calcul des normales pour l'éclairage
+            
+            // On crée un matériau (la "peau" de l'objet)
+            const material = new THREE.MeshPhongMaterial({
+                color: 0x4CAF50, // Vert
+                side: THREE.DoubleSide, // Visible des deux côtés
+                flatShading: true // Ombrage plat pour voir les faces
+            });
+            
+            // On crée le mesh (géométrie + matériau)
+            currentMesh = new THREE.Mesh(geometry, material);
+            
+            // On stocke les données originales pour plus tard
+            currentMesh.userData.vertices = vertices;
+            currentMesh.userData.faces = faces;
+            
+            // On centre l'objet
+            geometry.center();
+            
+            // On ajoute à la scène
+            scene.add(currentMesh);
+            
+            // On active les contrôles
+            pieceSlider.disabled = false;
+            generateBtn.disabled = false;
+            
+            // On met à jour la limite du slider
+            pieceSlider.max = Math.min(faces.length, 50);
+            pieceSlider.value = Math.min(10, faces.length);
+            updatePieceCount();
+        }
+        
+        // ========================================
+        // PARTIE 5 : GESTION DU SLIDER
+        // ========================================
+        
+        pieceSlider.addEventListener('input', updatePieceCount);
+        
+        function updatePieceCount() {
+            pieceCount.textContent = `Pièces : ${pieceSlider.value}`;
+        }
+        
+        // ========================================
+        // PARTIE 6 : GÉNÉRATION DU PATRON
+        // ========================================
+        
+        generateBtn.addEventListener('click', generatePattern);
+        
+        function generatePattern() {
+            if (!currentMesh) return;
+            
+            const targetPieces = parseInt(pieceSlider.value);
+            const faces = currentMesh.userData.faces;
+            const vertices = currentMesh.userData.vertices;
+            
+            // SIMPLIFICATION : On regroupe les faces
+            // Dans une vraie version, on utiliserait un algorithme de clustering
+            // Ici, on va simplement prendre des faces équidistantes
+            
+            const step = Math.max(1, Math.floor(faces.length / targetPieces));
+            const selectedFaces = [];
+            
+            for (let i = 0; i < faces.length; i += step) {
+                if (selectedFaces.length < targetPieces) {
+                    selectedFaces.push(faces[i]);
+                }
+            }
+            
+            // On dessine le patron 2D
+            drawPattern(selectedFaces, vertices);
+        }
+        
+        // ========================================
+        // PARTIE 7 : DESSIN DU PATRON 2D
+        // ========================================
+        
+        function drawPattern(faces, vertices) {
+            const canvas = document.getElementById('patternCanvas');
+            const ctx = canvas.getContext('2d');
+            
+            // Taille du canvas
+            canvas.width = 800;
+            canvas.height = 1000;
+            
+            // On efface tout
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            ctx.fillStyle = 'white';
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+            
+            // On dessine chaque face
+            let offsetX = 50;
+            let offsetY = 50;
+            const scale = 100; // Échelle pour rendre les pièces visibles
+            
+            faces.forEach((face, index) => {
+                // On récupère les 3 sommets du triangle
+                const v1 = vertices[face[0]];
+                const v2 = vertices[face[1]];
+                const v3 = vertices[face[2]];
+                
+                // SIMPLIFICATION : On projette en 2D simplement (projection XY)
+                // Dans une vraie version, on calculerait le "unfold" réel
+                
+                ctx.beginPath();
+                ctx.moveTo(offsetX + v1.x * scale, offsetY + v1.y * scale);
+                ctx.lineTo(offsetX + v2.x * scale, offsetY + v2.y * scale);
+                ctx.lineTo(offsetX + v3.x * scale, offsetY + v3.y * scale);
+                ctx.closePath();
+                
+                // Couleur aléatoire pour chaque pièce
+                const hue = (index * 137.5) % 360;
+                ctx.fillStyle = `hsl(${hue}, 70%, 80%)`;
+                ctx.fill();
+                
+                ctx.strokeStyle = '#333';
+                ctx.lineWidth = 2;
+                ctx.stroke();
+                
+                // Numéro de la pièce
+                ctx.fillStyle = '#000';
+                ctx.font = '12px Arial';
+                ctx.fillText(`P${index + 1}`, offsetX + v1.x * scale + 5, offsetY + v1.y * scale + 5);
+                
+                // On décale pour la prochaine pièce
+                offsetX += 150;
+                if (offsetX > canvas.width - 150) {
+                    offsetX = 50;
+                    offsetY += 150;
+                }
+            });
+        }
+        
+        // ========================================
+        // PARTIE 8 : ANIMATION ET RENDU
+        // ========================================
+        
+        // Fonction pour ajuster la taille du rendu
+        function resizeRenderer() {
+            const container = document.getElementById('view3d');
+            const width = container.clientWidth;
+            const height = container.clientHeight;
+            
+            camera.aspect = width / height;
+            camera.updateProjectionMatrix();
+            renderer.setSize(width, height);
+        }
+        
+        // On ajuste la taille au démarrage et quand la fenêtre change
+        resizeRenderer();
+        window.addEventListener('resize', resizeRenderer);
+        
+        // Boucle d'animation : fait tourner l'objet
+        function animate() {
+            requestAnimationFrame(animate);
+            
+            // On fait tourner l'objet doucement
+            if (currentMesh) {
+                currentMesh.rotation.y += 0.005;
+            }
+            
+            renderer.render(scene, camera);
+        }
+        
+        animate(); // On lance l'animation
+    </script>
 </body>
 </html>
-
