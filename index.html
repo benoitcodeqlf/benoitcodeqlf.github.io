@@ -18,6 +18,15 @@
   <button>Convertir en patron</button>
 
   <canvas id="patron2D" width="500" height="500"></canvas>
+<script>
+const slider = document.getElementById("pieces");
+const value = document.getElementById("value");
+
+slider.oninput = () => {
+  value.textContent = slider.value;
+};
+</script>
 
 </body>
 </html>
+
